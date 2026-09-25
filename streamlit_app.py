@@ -59,13 +59,11 @@ prompt = st.text_area(
         "CCO\n"
         "CCN\n"
         "CCCC\n"
-        "CCCO\n"
         "CC(=O)OC1=CC=CC=C1C(=O)O\n\n"
         "Koja su dva para međusobno najsličnija i postoje li "
         "među ovim spojevima kršenja pravila?\n\n"
         "ili: \n"
-        "Pronađi aspirin u lokalnoj referentnoj bazi i reci mi \n"
-        "njegov ChEMBL ID, molekulsku formulu i SMILES."
+        "Pronađi aspirin u lokalnoj referentnoj bazi i reci mi njegov ChEMBL ID, molekulsku formulu i SMILES.\n"
     ),
     height=300,
 )
