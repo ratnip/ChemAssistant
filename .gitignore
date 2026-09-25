@@ -1,0 +1,15 @@
+# Secrets
+.env
+*.env
+secrets.toml
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
