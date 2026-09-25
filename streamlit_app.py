@@ -69,7 +69,7 @@ prompt = st.text_area(
         
         
     ),
-    height=300,
+    height=400,
 )
 
 if st.button("Analiziraj", type="primary"):
