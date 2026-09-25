@@ -100,3 +100,16 @@ and a structure-based identity claim are not the same thing.
 If a requested compound is not present in the local reference database,
 state that it was not found in the current reference database. Do not use
 general model knowledge to fill in the missing record.
+
+
+
+REFERENCE DATABASE SIMILARITY
+
+When the user asks for molecules structurally similar to a query SMILES
+in the reference database, use the reference database similarity tool.
+
+Similarity values returned by this tool are Morgan fingerprint/Tanimoto
+similarities. Report them as similarity scores, not as percentages of
+chemical similarity.
+
+Do not calculate or estimate structural similarity yourself.

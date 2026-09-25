@@ -4,7 +4,11 @@ from tools.rules import check_lipinski
 from tools.similarity import get_top_similar_pairs
 from tools.validation import validate_molecules
 from smolagents import tool
-from tools.database import search_by_name, get_molecule
+from tools.database import (
+    search_by_name,
+    get_molecule,
+    find_most_similar,
+)
 
 
 @tool
@@ -136,3 +140,27 @@ def get_reference_molecule_tool(
         or None if the compound is not present.
     """
     return get_molecule(chembl_id)
+
+
+
+@tool
+def find_similar_in_reference_database_tool(
+    query_smiles: str,
+    top_n: int = 3
+) -> list[dict]:
+    """
+    Find the most structurally similar molecules in the local reference database.
+
+    Args:
+        query_smiles: Query molecule represented as a SMILES string.
+        top_n: Number of most similar reference molecules to return.
+
+    Returns:
+        Reference molecules ranked by Morgan/Tanimoto similarity.
+        Exact fingerprint matches to the query are excluded.
+    """
+    return find_most_similar(
+        query_smiles=query_smiles,
+        top_n=top_n,
+        exclude_exact_match=True,
+    )

@@ -37,6 +37,7 @@ chem_agent = ToolCallingAgent(
         agent.find_similar_molecules_tool,
         agent.search_reference_database_tool,
         agent.get_reference_molecule_tool,
+        agent.find_similar_in_reference_database_tool,
     ],
     model=model,
     instructions=instructions,
@@ -55,15 +56,18 @@ prompt = st.text_area(
     "Upit",
     placeholder=(
         "Primjer:\n\n"
+        "Pronađi aspirin u lokalnoj referentnoj bazi i reci mi njegov ChEMBL ID, molekulsku formulu i SMILES.\n\n"
+        "ili: \n\n"
+        "Koje su tri molekule u referentnoj bazi najsličnije CO2?\n\n"
+        "ili: \n\n"
         "Imam sljedeće spojeve:\n"
         "CCO\n"
         "CCN\n"
         "CCCC\n"
         "CC(=O)OC1=CC=CC=C1C(=O)O\n\n"
-        "Koja su dva para međusobno najsličnija i postoje li "
-        "među ovim spojevima kršenja pravila?\n\n"
-        "ili: \n"
-        "Pronađi aspirin u lokalnoj referentnoj bazi i reci mi njegov ChEMBL ID, molekulsku formulu i SMILES.\n"
+        "Koja su dva para međusobno najsličnija i postoje limeđu ovim spojevima kršenja pravila?\n\n"
+        
+        
     ),
     height=300,
 )

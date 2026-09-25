@@ -13,6 +13,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from rdkit import Chem, DataStructs, rdBase
+from rdkit.Chem import rdFingerprintGenerator
 
 # Resolve the database relative to this file:
 # ChemASSistant/tools/database.py -> ChemASSistant/data/chemass_reference.db
@@ -188,3 +190,89 @@ if __name__ == "__main__":
     print("\nSearch for aspirin:")
     for result in search_by_name("aspirin", limit=5):
         print(result)
+
+
+def find_most_similar(
+    query_smiles: str,
+    top_n: int = 3,
+    exclude_exact_match: bool = True,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """
+    Find the most structurally similar molecules in the local reference database.
+
+    Similarity is calculated locally using RDKit Morgan fingerprints
+    (radius=2) and Tanimoto similarity.
+
+    Args:
+        query_smiles: Query molecule represented as a SMILES string.
+        top_n: Number of most similar reference molecules to return.
+        exclude_exact_match: Exclude molecules with similarity 1.0.
+        db_path: Path to the SQLite reference database.
+
+    Returns:
+        The most similar reference molecules ranked by decreasing
+        Morgan/Tanimoto similarity.
+    """
+
+    if not isinstance(query_smiles, str) or not query_smiles.strip():
+        raise ValueError("query_smiles must be a non-empty string")
+
+    if top_n < 1:
+        raise ValueError("top_n must be at least 1")
+
+    # Parse query molecule
+    with rdBase.BlockLogs():
+        query_mol = Chem.MolFromSmiles(query_smiles)
+
+    if query_mol is None:
+        raise ValueError("Invalid query SMILES")
+
+    # Create fingerprint generator
+    generator = rdFingerprintGenerator.GetMorganGenerator(radius=2)
+    query_fp = generator.GetFingerprint(query_mol)
+
+    # Read reference molecules from SQLite
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT chembl_id, name, smiles, max_phase, formula, chembl_mw
+            FROM molecules
+            WHERE smiles IS NOT NULL
+            """
+        ).fetchall()
+
+    results = []
+
+    # Calculate similarity locally with RDKit
+    for row in rows:
+        reference_smiles = row["smiles"]
+
+        with rdBase.BlockLogs():
+            reference_mol = Chem.MolFromSmiles(reference_smiles)
+
+        if reference_mol is None:
+            continue
+
+        reference_fp = generator.GetFingerprint(reference_mol)
+
+        similarity = DataStructs.TanimotoSimilarity(
+            query_fp,
+            reference_fp,
+        )
+
+        if exclude_exact_match and similarity == 1.0:
+            continue
+
+        result = dict(row)
+        result["similarity"] = similarity
+
+        results.append(result)
+
+    # Highest similarity first
+    results.sort(
+        key=lambda x: x["similarity"],
+        reverse=True,
+    )
+
+    return results[:top_n]
