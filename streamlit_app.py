@@ -20,19 +20,152 @@ INSTRUCTIONS_PATH = PROJECT_ROOT / "prompts" / "agent_instructions.txt"
 
 
 # ============================================================
+# Language
+# ============================================================
+
+if "ui_language" not in st.session_state:
+    st.session_state.ui_language = "hr"
+
+TEXT = {
+    "hr": {
+        "page_title": "ChemASSistant",
+        "caption": "Demo verzija — nemojte unositi povjerljive ili osjetljive podatke.",
+        "switch_button": "EN",
+        "switch_help": "Prebaci sučelje na engleski",
+        "chat_tab": "💬 ChemASSistant",
+        "dataset_tab": "📄 Analiza skupa podataka",
+        "chat_header": "Asistent za molekularnu analizu",
+        "examples": """
+Primjeri pitanja:
+
+- `Validiraj ove SMILES zapise: CCO, CCN, C1CC`
+- `Izračunaj deskriptore za aspirin: CC(=O)Oc1ccccc1C(=O)O`
+- `Pronađi aspirin u lokalnoj referentnoj bazi`
+- `Pronađi 3 referentne molekule najsličnije O=C=O`
+""",
+        "ask_label": "Pitaj ChemASSistant",
+        "ask_placeholder": "Unesite pitanje iz područja kemoinformatike...",
+        "analyze_button": "Analiziraj",
+        "enter_question": "Prvo unesite pitanje.",
+        "analyzing": "Analiziram...",
+        "response": "Odgovor",
+        "assistant_error": "Greška ChemASSistant-a",
+        "dataset_header": "CSV skup molekularnih podataka",
+        "dataset_intro": (
+            "Prenesite CSV datoteku koja sadrži stupac s molekularnim SMILES zapisima. "
+            "Analiza u ovom odjeljku je deterministička i ne koristi LLM."
+        ),
+        "upload_csv": "Prenesi CSV",
+        "csv_read_error": "Nije moguće pročitati CSV",
+        "empty_rows": "Preneseni CSV ne sadrži retke podataka.",
+        "empty_columns": "Preneseni CSV ne sadrži stupce.",
+        "dataset_preview": "Pregled skupa podataka",
+        "smiles_column": "SMILES stupac",
+        "smiles_help": (
+            "ChemASSistant pokušava automatski prepoznati SMILES stupac, "
+            "ali ga ovdje možete ručno promijeniti."
+        ),
+        "detected_smiles": "Automatski prepoznat SMILES stupac",
+        "not_detected": (
+            "SMILES stupac nije automatski prepoznat. "
+            "Ručno odaberite odgovarajući stupac."
+        ),
+        "analyze_dataset": "Analiziraj skup podataka",
+        "summary": "Sažetak",
+        "total_molecules": "Ukupno molekula",
+        "valid_molecules": "Valjane molekule",
+        "invalid_molecules": "Nevaljane molekule",
+        "analyzed_dataset": "Analizirani skup podataka",
+        "top_pairs": "Najsličniji parovi",
+        "not_enough": "Nema dovoljno valjanih molekula za izračun parnih sličnosti.",
+        "download_csv": "Preuzmi analizirani CSV",
+        "dataset_error": "Analiza skupa podataka nije uspjela",
+    },
+    "en": {
+        "page_title": "ChemASSistant",
+        "caption": "Demo version — do not enter confidential or sensitive data.",
+        "switch_button": "HR",
+        "switch_help": "Switch interface to Croatian",
+        "chat_tab": "💬 ChemASSistant",
+        "dataset_tab": "📄 Dataset analysis",
+        "chat_header": "Molecular analysis assistant",
+        "examples": """
+Example questions:
+
+- `Validate these SMILES: CCO, CCN, C1CC`
+- `Calculate descriptors for aspirin: CC(=O)Oc1ccccc1C(=O)O`
+- `Find aspirin in the local reference database`
+- `Find the 3 reference molecules most similar to O=C=O`
+""",
+        "ask_label": "Ask ChemASSistant",
+        "ask_placeholder": "Enter a cheminformatics question...",
+        "analyze_button": "Analyze",
+        "enter_question": "Enter a question first.",
+        "analyzing": "Analyzing...",
+        "response": "Response",
+        "assistant_error": "ChemASSistant error",
+        "dataset_header": "CSV molecular dataset",
+        "dataset_intro": (
+            "Upload a CSV file containing a column with molecular SMILES. "
+            "The analysis in this section is deterministic and does not use the LLM."
+        ),
+        "upload_csv": "Upload CSV",
+        "csv_read_error": "Could not read CSV",
+        "empty_rows": "The uploaded CSV contains no data rows.",
+        "empty_columns": "The uploaded CSV contains no columns.",
+        "dataset_preview": "Dataset preview",
+        "smiles_column": "SMILES column",
+        "smiles_help": (
+            "ChemASSistant tries to detect a SMILES column automatically, "
+            "but you can override it here."
+        ),
+        "detected_smiles": "Automatically detected SMILES column",
+        "not_detected": (
+            "No SMILES column was detected automatically. "
+            "Select the correct column manually."
+        ),
+        "analyze_dataset": "Analyze dataset",
+        "summary": "Summary",
+        "total_molecules": "Total molecules",
+        "valid_molecules": "Valid molecules",
+        "invalid_molecules": "Invalid molecules",
+        "analyzed_dataset": "Analyzed dataset",
+        "top_pairs": "Top similar pairs",
+        "not_enough": "Not enough valid molecules to calculate pairwise similarities.",
+        "download_csv": "Download analyzed CSV",
+        "dataset_error": "Dataset analysis failed",
+    },
+}
+
+lang = st.session_state.ui_language
+t = TEXT[lang]
+
+
+# ============================================================
 # Streamlit page setup
 # ============================================================
 
 st.set_page_config(
-    page_title="ChemASSistant",
+    page_title=t["page_title"],
     page_icon="🧪",
     layout="wide",
 )
 
-st.title("🧪 ChemASSistant")
-st.caption(
-    "Demo version — do not enter confidential or sensitive data."
-)
+title_col, lang_col = st.columns([10, 1])
+
+with title_col:
+    st.title("🧪 ChemASSistant")
+    st.caption(t["caption"])
+
+with lang_col:
+    if st.button(
+        t["switch_button"],
+        help=t["switch_help"],
+        key="language_toggle",
+        use_container_width=True,
+    ):
+        st.session_state.ui_language = "en" if lang == "hr" else "hr"
+        st.rerun()
 
 
 # ============================================================
@@ -71,7 +204,7 @@ def create_agent() -> ToolCallingAgent:
 # ============================================================
 
 chat_tab, dataset_tab = st.tabs(
-    ["💬 ChemASSistant", "📄 Dataset analysis"]
+    [t["chat_tab"], t["dataset_tab"]]
 )
 
 
@@ -81,44 +214,34 @@ chat_tab, dataset_tab = st.tabs(
 
 with chat_tab:
 
-    st.subheader("Molecular analysis assistant")
-
-    st.markdown(
-        """
-        Example questions:
-
-        - `Validate these SMILES: CCO, CCN, C1CC`
-        - `Calculate descriptors for aspirin: CC(=O)Oc1ccccc1C(=O)O`
-        - `Find aspirin in the local reference database`
-        - `Find the 3 reference molecules most similar to O=C=O`
-        """
-    )
+    st.subheader(t["chat_header"])
+    st.markdown(t["examples"])
 
     prompt = st.text_area(
-        "Ask ChemASSistant",
+        t["ask_label"],
         height=180,
-        placeholder="Enter a cheminformatics question...",
+        placeholder=t["ask_placeholder"],
     )
 
     if st.button(
-        "Analyze",
+        t["analyze_button"],
         type="primary",
         key="chat_analyze",
     ):
         if not prompt.strip():
-            st.warning("Enter a question first.")
+            st.warning(t["enter_question"])
         else:
             try:
                 chem_agent = create_agent()
 
-                with st.spinner("Analyzing..."):
+                with st.spinner(t["analyzing"]):
                     response = chem_agent.run(prompt)
 
-                st.markdown("### Response")
+                st.markdown(f"### {t['response']}")
                 st.write(response)
 
             except Exception as exc:
-                st.error(f"ChemASSistant error: {exc}")
+                st.error(f"{t['assistant_error']}: {exc}")
 
 
 # ============================================================
@@ -127,15 +250,11 @@ with chat_tab:
 
 with dataset_tab:
 
-    st.subheader("CSV molecular dataset")
-
-    st.write(
-        "Upload a CSV file containing a column with molecular SMILES. "
-        "The analysis below is deterministic and runs without the LLM."
-    )
+    st.subheader(t["dataset_header"])
+    st.write(t["dataset_intro"])
 
     uploaded_file = st.file_uploader(
-        "Upload CSV",
+        t["upload_csv"],
         type=["csv"],
         key="dataset_upload",
     )
@@ -146,19 +265,19 @@ with dataset_tab:
             raw_df = pd.read_csv(uploaded_file)
 
         except Exception as exc:
-            st.error(f"Could not read CSV: {exc}")
+            st.error(f"{t['csv_read_error']}: {exc}")
             raw_df = None
 
         if raw_df is not None:
 
             if raw_df.empty:
-                st.warning("The uploaded CSV contains no data rows.")
+                st.warning(t["empty_rows"])
 
             elif len(raw_df.columns) == 0:
-                st.warning("The uploaded CSV contains no columns.")
+                st.warning(t["empty_columns"])
 
             else:
-                st.markdown("### Dataset preview")
+                st.markdown(f"### {t['dataset_preview']}")
                 st.dataframe(
                     raw_df.head(20),
                     use_container_width=True,
@@ -174,28 +293,21 @@ with dataset_tab:
                     default_index = 0
 
                 smiles_column = st.selectbox(
-                    "SMILES column",
+                    t["smiles_column"],
                     options=column_names,
                     index=default_index,
-                    help=(
-                        "ChemASSistant tries to detect a SMILES column "
-                        "automatically, but you can override it here."
-                    ),
+                    help=t["smiles_help"],
                 )
 
                 if detected_column is not None:
                     st.caption(
-                        f"Automatically detected SMILES column: "
-                        f"`{detected_column}`"
+                        f"{t['detected_smiles']}: `{detected_column}`"
                     )
                 else:
-                    st.caption(
-                        "No SMILES column was detected automatically. "
-                        "Select the correct column manually."
-                    )
+                    st.caption(t["not_detected"])
 
                 if st.button(
-                    "Analyze dataset",
+                    t["analyze_dataset"],
                     type="primary",
                     key="dataset_analyze",
                 ):
@@ -214,33 +326,33 @@ with dataset_tab:
                         analyzed_df = result["dataset"]
                         validation_summary = result["validation_summary"]
 
-                        st.markdown("### Summary")
+                        st.markdown(f"### {t['summary']}")
 
                         col1, col2, col3 = st.columns(3)
 
                         col1.metric(
-                            "Total molecules",
+                            t["total_molecules"],
                             validation_summary["total_molecules"],
                         )
 
                         col2.metric(
-                            "Valid molecules",
+                            t["valid_molecules"],
                             validation_summary["valid_molecules"],
                         )
 
                         col3.metric(
-                            "Invalid molecules",
+                            t["invalid_molecules"],
                             validation_summary["invalid_molecules"],
                         )
 
-                        st.markdown("### Analyzed dataset")
+                        st.markdown(f"### {t['analyzed_dataset']}")
 
                         st.dataframe(
                             analyzed_df,
                             use_container_width=True,
                         )
 
-                        st.markdown("### Top similar pairs")
+                        st.markdown(f"### {t['top_pairs']}")
 
                         top_pairs = result["top_similar_pairs"]
 
@@ -252,21 +364,18 @@ with dataset_tab:
                                 use_container_width=True,
                             )
                         else:
-                            st.info(
-                                "Not enough valid molecules to calculate "
-                                "pairwise similarities."
-                            )
+                            st.info(t["not_enough"])
 
                         csv_output = analyzed_df.to_csv(
                             index=False
                         ).encode("utf-8")
 
                         st.download_button(
-                            "Download analyzed CSV",
+                            t["download_csv"],
                             data=csv_output,
                             file_name="chemassistant_analysis.csv",
                             mime="text/csv",
                         )
 
                     except Exception as exc:
-                        st.error(f"Dataset analysis failed: {exc}")
+                        st.error(f"{t['dataset_error']}: {exc}")
