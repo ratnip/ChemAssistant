@@ -20,11 +20,22 @@ INSTRUCTIONS_PATH = PROJECT_ROOT / "prompts" / "agent_instructions.txt"
 
 
 # ============================================================
-# Language
+# Session state
 # ============================================================
 
 if "ui_language" not in st.session_state:
     st.session_state.ui_language = "hr"
+
+if "dataset_context" not in st.session_state:
+    st.session_state.dataset_context = None
+
+if "dataset_filename" not in st.session_state:
+    st.session_state.dataset_filename = None
+
+
+# ============================================================
+# Language strings
+# ============================================================
 
 TEXT = {
     "hr": {
@@ -41,7 +52,8 @@ Primjeri pitanja:
 - `Validiraj ove SMILES zapise: CCO, CCN, C1CC`
 - `Izračunaj deskriptore za aspirin: CC(=O)Oc1ccccc1C(=O)O`
 - `Pronađi aspirin u lokalnoj referentnoj bazi`
-- `Pronađi 3 referentne molekule najsličnije O=C=O`
+- `Koja molekula u učitanom CSV-u ima najveći MW?`
+- `Objasni mi najsličniji par molekula iz učitanog CSV-a`
 """,
         "ask_label": "Pitaj ChemASSistant",
         "ask_placeholder": "Unesite pitanje iz područja kemoinformatike...",
@@ -50,10 +62,14 @@ Primjeri pitanja:
         "analyzing": "Analiziram...",
         "response": "Odgovor",
         "assistant_error": "Greška ChemASSistant-a",
+        "dataset_active": "Aktivan CSV kontekst",
+        "dataset_none": "CSV skup podataka trenutno nije povezan s chatom.",
+        "clear_dataset": "Odspoji CSV od chata",
         "dataset_header": "CSV skup molekularnih podataka",
         "dataset_intro": (
             "Prenesite CSV datoteku koja sadrži stupac s molekularnim SMILES zapisima. "
-            "Analiza u ovom odjeljku je deterministička i ne koristi LLM."
+            "Analiza je deterministička. Nakon analize, sažeti rezultati postaju dostupni "
+            "ChemASSistant chatu."
         ),
         "upload_csv": "Prenesi CSV",
         "csv_read_error": "Nije moguće pročitati CSV",
@@ -80,6 +96,11 @@ Primjeri pitanja:
         "not_enough": "Nema dovoljno valjanih molekula za izračun parnih sličnosti.",
         "download_csv": "Preuzmi analizirani CSV",
         "dataset_error": "Analiza skupa podataka nije uspjela",
+        "chat_connected": "CSV analiza je sada dostupna chatu.",
+        "context_note": (
+            "Chat dobiva deterministički sažetak i najviše 50 analiziranih redaka "
+            "kako ne bismo nepotrebno trošili tokene."
+        ),
     },
     "en": {
         "page_title": "ChemASSistant",
@@ -95,7 +116,8 @@ Example questions:
 - `Validate these SMILES: CCO, CCN, C1CC`
 - `Calculate descriptors for aspirin: CC(=O)Oc1ccccc1C(=O)O`
 - `Find aspirin in the local reference database`
-- `Find the 3 reference molecules most similar to O=C=O`
+- `Which molecule in the uploaded CSV has the highest MW?`
+- `Explain the most similar pair in the uploaded CSV`
 """,
         "ask_label": "Ask ChemASSistant",
         "ask_placeholder": "Enter a cheminformatics question...",
@@ -104,10 +126,14 @@ Example questions:
         "analyzing": "Analyzing...",
         "response": "Response",
         "assistant_error": "ChemASSistant error",
+        "dataset_active": "Active CSV context",
+        "dataset_none": "No CSV dataset is currently connected to chat.",
+        "clear_dataset": "Disconnect CSV from chat",
         "dataset_header": "CSV molecular dataset",
         "dataset_intro": (
             "Upload a CSV file containing a column with molecular SMILES. "
-            "The analysis in this section is deterministic and does not use the LLM."
+            "The analysis is deterministic. After analysis, a compact result context "
+            "becomes available to ChemASSistant chat."
         ),
         "upload_csv": "Upload CSV",
         "csv_read_error": "Could not read CSV",
@@ -134,11 +160,105 @@ Example questions:
         "not_enough": "Not enough valid molecules to calculate pairwise similarities.",
         "download_csv": "Download analyzed CSV",
         "dataset_error": "Dataset analysis failed",
+        "chat_connected": "CSV analysis is now available to chat.",
+        "context_note": (
+            "Chat receives deterministic summary data plus at most 50 analyzed rows "
+            "to avoid unnecessary token usage."
+        ),
     },
 }
 
 lang = st.session_state.ui_language
 t = TEXT[lang]
+
+
+# ============================================================
+# Helpers
+# ============================================================
+
+def build_dataset_context(
+    analyzed_df: pd.DataFrame,
+    result: dict,
+    filename: str | None,
+    max_rows: int = 50,
+) -> str:
+    """Create a compact, deterministic context for the LLM.
+
+    The LLM does not receive the raw uploaded file. It receives selected
+    results produced by the deterministic ChemASSistant pipeline.
+    """
+    preferred_columns = [
+        "compound_id",
+        "id",
+        "name",
+        "original_smiles",
+        "canonical_smiles",
+        "valid",
+        "validation_error",
+        "mw",
+        "logp",
+        "tpsa",
+        "hbd",
+        "hba",
+        "rotatable_bonds",
+        "heavy_atoms",
+        "formal_charge",
+        "lipinski_violations",
+        "violations",
+    ]
+
+    selected_columns = [
+        column for column in preferred_columns
+        if column in analyzed_df.columns
+    ]
+
+    # Preserve user columns if we still have room and they are simple tabular data.
+    for column in analyzed_df.columns:
+        if column not in selected_columns and len(selected_columns) < 20:
+            selected_columns.append(column)
+
+    context_df = analyzed_df[selected_columns].head(max_rows).copy()
+
+    context_df = context_df.where(pd.notna(context_df), None)
+
+    validation_summary = result["validation_summary"]
+    descriptor_summary = result["descriptor_summary"]
+    top_pairs = result["top_similar_pairs"]
+
+    truncated = len(analyzed_df) > max_rows
+
+    return f"""
+CURRENT ANALYZED DATASET CONTEXT
+
+This context was produced by ChemASSistant's deterministic Python/RDKit
+pipeline. Treat values in this context as authoritative dataset results.
+Do not recalculate them from model knowledge.
+
+Dataset file: {filename or "unknown"}
+Total rows: {len(analyzed_df)}
+Rows included below: {len(context_df)}
+Context truncated: {truncated}
+
+Validation summary:
+{validation_summary}
+
+Descriptor summary:
+{descriptor_summary}
+
+Top pairwise similarities within the uploaded dataset:
+{top_pairs}
+
+Analyzed rows:
+{context_df.to_dict(orient="records")}
+
+IMPORTANT:
+- Answer in the same language as the user's question.
+- Use only the dataset information shown above for claims about the uploaded CSV.
+- If the requested answer depends on rows not included because the context was
+  truncated, say that the current chat context does not contain enough rows
+  to answer reliably.
+- Do not invent missing dataset values.
+""".strip()
 
 
 # ============================================================
@@ -215,6 +335,24 @@ chat_tab, dataset_tab = st.tabs(
 with chat_tab:
 
     st.subheader(t["chat_header"])
+
+    if st.session_state.dataset_context is not None:
+        st.success(
+            f"{t['dataset_active']}: "
+            f"{st.session_state.dataset_filename or 'CSV'}"
+        )
+        st.caption(t["context_note"])
+
+        if st.button(
+            t["clear_dataset"],
+            key="clear_dataset_context",
+        ):
+            st.session_state.dataset_context = None
+            st.session_state.dataset_filename = None
+            st.rerun()
+    else:
+        st.info(t["dataset_none"])
+
     st.markdown(t["examples"])
 
     prompt = st.text_area(
@@ -234,8 +372,17 @@ with chat_tab:
             try:
                 chem_agent = create_agent()
 
+                agent_prompt = prompt
+
+                if st.session_state.dataset_context is not None:
+                    agent_prompt = (
+                        st.session_state.dataset_context
+                        + "\n\nUSER QUESTION:\n"
+                        + prompt
+                    )
+
                 with st.spinner(t["analyzing"]):
-                    response = chem_agent.run(prompt)
+                    response = chem_agent.run(agent_prompt)
 
                 st.markdown(f"### {t['response']}")
                 st.write(response)
@@ -284,7 +431,6 @@ with dataset_tab:
                 )
 
                 detected_column = dataset.detect_smiles_column(raw_df)
-
                 column_names = list(raw_df.columns)
 
                 if detected_column in column_names:
@@ -325,6 +471,18 @@ with dataset_tab:
 
                         analyzed_df = result["dataset"]
                         validation_summary = result["validation_summary"]
+
+                        # Store a compact deterministic context for chat.
+                        st.session_state.dataset_context = build_dataset_context(
+                            analyzed_df=analyzed_df,
+                            result=result,
+                            filename=uploaded_file.name,
+                            max_rows=50,
+                        )
+                        st.session_state.dataset_filename = uploaded_file.name
+
+                        st.success(t["chat_connected"])
+                        st.caption(t["context_note"])
 
                         st.markdown(f"### {t['summary']}")
 
