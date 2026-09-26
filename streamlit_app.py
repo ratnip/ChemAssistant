@@ -329,69 +329,6 @@ chat_tab, dataset_tab = st.tabs(
 
 
 # ============================================================
-# Chat tab
-# ============================================================
-
-with chat_tab:
-
-    st.subheader(t["chat_header"])
-
-    if st.session_state.dataset_context is not None:
-        st.success(
-            f"{t['dataset_active']}: "
-            f"{st.session_state.dataset_filename or 'CSV'}"
-        )
-        st.caption(t["context_note"])
-
-        if st.button(
-            t["clear_dataset"],
-            key="clear_dataset_context",
-        ):
-            st.session_state.dataset_context = None
-            st.session_state.dataset_filename = None
-            st.rerun()
-    else:
-        st.info(t["dataset_none"])
-
-    st.markdown(t["examples"])
-
-    prompt = st.text_area(
-        t["ask_label"],
-        height=180,
-        placeholder=t["ask_placeholder"],
-    )
-
-    if st.button(
-        t["analyze_button"],
-        type="primary",
-        key="chat_analyze",
-    ):
-        if not prompt.strip():
-            st.warning(t["enter_question"])
-        else:
-            try:
-                chem_agent = create_agent()
-
-                agent_prompt = prompt
-
-                if st.session_state.dataset_context is not None:
-                    agent_prompt = (
-                        st.session_state.dataset_context
-                        + "\n\nUSER QUESTION:\n"
-                        + prompt
-                    )
-
-                with st.spinner(t["analyzing"]):
-                    response = chem_agent.run(agent_prompt)
-
-                st.markdown(f"### {t['response']}")
-                st.write(response)
-
-            except Exception as exc:
-                st.error(f"{t['assistant_error']}: {exc}")
-
-
-# ============================================================
 # Dataset analysis tab
 # ============================================================
 
@@ -537,3 +474,66 @@ with dataset_tab:
 
                     except Exception as exc:
                         st.error(f"{t['dataset_error']}: {exc}")
+
+
+# ============================================================
+# Chat tab
+# ============================================================
+
+with chat_tab:
+
+    st.subheader(t["chat_header"])
+
+    if st.session_state.dataset_context is not None:
+        st.success(
+            f"{t['dataset_active']}: "
+            f"{st.session_state.dataset_filename or 'CSV'}"
+        )
+        st.caption(t["context_note"])
+
+        if st.button(
+            t["clear_dataset"],
+            key="clear_dataset_context",
+        ):
+            st.session_state.dataset_context = None
+            st.session_state.dataset_filename = None
+            st.rerun()
+    else:
+        st.info(t["dataset_none"])
+
+    st.markdown(t["examples"])
+
+    prompt = st.text_area(
+        t["ask_label"],
+        height=180,
+        placeholder=t["ask_placeholder"],
+    )
+
+    if st.button(
+        t["analyze_button"],
+        type="primary",
+        key="chat_analyze",
+    ):
+        if not prompt.strip():
+            st.warning(t["enter_question"])
+        else:
+            try:
+                chem_agent = create_agent()
+
+                agent_prompt = prompt
+
+                if st.session_state.dataset_context is not None:
+                    agent_prompt = (
+                        st.session_state.dataset_context
+                        + "\n\nUSER QUESTION:\n"
+                        + prompt
+                    )
+
+                with st.spinner(t["analyzing"]):
+                    response = chem_agent.run(agent_prompt)
+
+                st.markdown(f"### {t['response']}")
+                st.write(response)
+
+            except Exception as exc:
+                st.error(f"{t['assistant_error']}: {exc}")
