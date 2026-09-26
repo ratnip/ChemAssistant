@@ -33,6 +33,7 @@ DEFAULT_STATE = {
     "analyzed_df": None,
     "analysis_result": None,
     "reference_compare_enabled": False,
+    "messages": [],
 }
 
 for key, value in DEFAULT_STATE.items():
@@ -72,6 +73,7 @@ Primjeri pitanja:
         "dataset_active": "Aktivan CSV kontekst",
         "dataset_none": "CSV skup podataka trenutno nije povezan s chatom.",
         "clear_dataset": "Odspoji CSV od chata",
+        "clear_chat": "Očisti razgovor",
         "dataset_header": "CSV skup molekularnih podataka",
         "dataset_intro": (
             "Prenesite CSV datoteku sa SMILES stupcem. Analiza je deterministička. "
@@ -141,6 +143,7 @@ Example questions:
         "dataset_active": "Active CSV context",
         "dataset_none": "No CSV dataset is currently connected to chat.",
         "clear_dataset": "Disconnect CSV from chat",
+        "clear_chat": "Clear conversation",
         "dataset_header": "CSV molecular dataset",
         "dataset_intro": (
             "Upload a CSV file containing a SMILES column. Analysis is deterministic. "
@@ -563,13 +566,28 @@ with chat_tab:
 
     st.subheader(t["chat_header"])
 
-    if st.session_state.dataset_context is not None:
-        st.success(
-            f"{t['dataset_active']}: "
-            f"{st.session_state.dataset_filename or 'CSV'}"
-        )
-        st.caption(t["context_note"])
+    status_col, clear_col = st.columns([5, 1])
 
+    with status_col:
+        if st.session_state.dataset_context is not None:
+            st.success(
+                f"{t['dataset_active']}: "
+                f"{st.session_state.dataset_filename or 'CSV'}"
+            )
+            st.caption(t["context_note"])
+        else:
+            st.info(t["dataset_none"])
+
+    with clear_col:
+        if st.button(
+            t["clear_chat"],
+            key="clear_chat_history",
+            use_container_width=True,
+        ):
+            st.session_state.messages = []
+            st.rerun()
+
+    if st.session_state.dataset_context is not None:
         if st.button(
             t["clear_dataset"],
             key="clear_dataset_context",
@@ -577,15 +595,19 @@ with chat_tab:
             st.session_state.dataset_context = None
             st.session_state.dataset_filename = None
             st.rerun()
-    else:
-        st.info(t["dataset_none"])
 
     st.markdown(t["examples"])
 
+    # Show the complete visible conversation for this browser session.
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
     prompt = st.text_area(
         t["ask_label"],
-        height=180,
+        height=140,
         placeholder=t["ask_placeholder"],
+        key="chat_prompt",
     )
 
     if st.button(
@@ -599,20 +621,58 @@ with chat_tab:
             try:
                 chem_agent = create_agent()
 
-                agent_prompt = prompt
+                # Build a bounded conversational context.
+                # Keep only the previous 8 messages for LLM input,
+                # while the UI can display the full in-session conversation.
+                recent_messages = st.session_state.messages[-8:]
+
+                history_lines = []
+                for message in recent_messages:
+                    role = "USER" if message["role"] == "user" else "ASSISTANT"
+                    history_lines.append(
+                        f"{role}: {message['content']}"
+                    )
+
+                agent_parts = []
 
                 if st.session_state.dataset_context is not None:
-                    agent_prompt = (
-                        st.session_state.dataset_context
-                        + "\n\nUSER QUESTION:\n"
-                        + prompt
+                    agent_parts.append(st.session_state.dataset_context)
+
+                if history_lines:
+                    agent_parts.append(
+                        "RECENT CONVERSATION:\n"
+                        + "\n".join(history_lines)
                     )
+
+                agent_parts.append(
+                    "USER QUESTION:\n" + prompt.strip()
+                )
+
+                agent_prompt = "\n\n".join(agent_parts)
+
+                # Add user message once, before the model call.
+                st.session_state.messages.append(
+                    {
+                        "role": "user",
+                        "content": prompt.strip(),
+                    }
+                )
 
                 with st.spinner(t["analyzing"]):
                     response = chem_agent.run(agent_prompt)
 
-                st.markdown(f"### {t['response']}")
-                st.write(response)
+                response_text = str(response)
+
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": response_text,
+                    }
+                )
+
+                # Rerun so the new user + assistant messages are rendered
+                # through the same chat history code above.
+                st.rerun()
 
             except Exception as exc:
                 st.error(f"{t['assistant_error']}: {exc}")
