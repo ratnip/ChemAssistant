@@ -74,6 +74,7 @@ Primjeri pitanja:
         "dataset_none": "CSV skup podataka trenutno nije povezan s chatom.",
         "clear_dataset": "Odspoji CSV od chata",
         "clear_chat": "Očisti razgovor",
+        "export_chat": "Preuzmi razgovor (.md)",
         "dataset_header": "CSV skup molekularnih podataka",
         "dataset_intro": (
             "Prenesite CSV datoteku sa SMILES stupcem. Analiza je deterministička. "
@@ -144,6 +145,7 @@ Example questions:
         "dataset_none": "No CSV dataset is currently connected to chat.",
         "clear_dataset": "Disconnect CSV from chat",
         "clear_chat": "Clear conversation",
+        "export_chat": "Download conversation (.md)",
         "dataset_header": "CSV molecular dataset",
         "dataset_intro": (
             "Upload a CSV file containing a SMILES column. Analysis is deterministic. "
@@ -369,6 +371,30 @@ def render_analysis_results() -> None:
         file_name="chemassistant_analysis.csv",
         mime="text/csv",
     )
+
+
+
+def build_chat_export() -> str:
+    """Build a Markdown export of the current in-session conversation."""
+    lines = [
+        "# ChemASSistant conversation",
+        "",
+        f"- Dataset context: {st.session_state.dataset_filename or 'None'}",
+        "",
+    ]
+
+    for message in st.session_state.messages:
+        role = "User" if message["role"] == "user" else "ChemASSistant"
+        lines.extend(
+            [
+                f"## {role}",
+                "",
+                str(message["content"]),
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip() + "\n"
 
 
 # ============================================================
@@ -602,6 +628,17 @@ with chat_tab:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.write(message["content"])
+
+    if st.session_state.messages:
+        chat_export = build_chat_export()
+
+        st.download_button(
+            t["export_chat"],
+            data=chat_export,
+            file_name="chemassistant_conversation.md",
+            mime="text/markdown",
+            key="download_chat_markdown",
+        )
 
     prompt = st.text_area(
         t["ask_label"],
