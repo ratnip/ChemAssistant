@@ -1,0 +1,5 @@
+compound_id,smiles,activity
+CMP001,CCO,12.4
+CMP002,C1CC,8.7
+CMP003,CCN,15.1
+CMP004,CC(=O)Oc1ccccc1C(=O)O,4.2
