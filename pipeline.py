@@ -7,15 +7,11 @@ from tools.descriptors import calculate_descriptors_batch
 from tools.rules import check_lipinski
 from tools.similarity import get_top_similar_pairs
 from tools.summary import summarize_validation, summarize_descriptors
+from tools.reference_compare import find_most_similar_batch
 
 
 def analyze_library(smiles_list: list[str]) -> dict:
-    """
-    Run the standard ChemASSistant analysis workflow on a list of SMILES.
-
-    Returns validation results, descriptors, property-rule checks,
-    top molecular similarities, and summary statistics.
-    """
+    """Run the standard ChemASSistant analysis workflow on a list of SMILES."""
     validation_results = validate_molecules(smiles_list)
 
     valid_smiles = [
@@ -47,48 +43,26 @@ def analyze_library(smiles_list: list[str]) -> dict:
 def analyze_dataframe(
     df: pd.DataFrame,
     smiles_column: str = "canonical_smiles",
+    compare_reference: bool = False,
+    reference_top_n: int = 3,
 ) -> dict:
-    """
-    Analyze an annotated molecular DataFrame.
+    """Analyze an annotated molecular DataFrame.
 
-    This function is intended for DataFrames produced by tools.dataset,
-    where each row has already been validated and includes a boolean
-    ``valid`` column plus a canonical SMILES column.
-
-    The original row order and original columns are preserved. Descriptor
-    and property-rule results are merged back onto valid rows. Invalid rows
-    remain in the output with missing analysis values.
-
-    Args:
-        df: Prepared molecular DataFrame.
-        smiles_column: Column containing the canonical/analysis SMILES.
-
-    Returns:
-        Dictionary containing:
-            dataset:
-                Original prepared dataset plus descriptors and rule results.
-            descriptors:
-                Descriptor records for valid molecules.
-            rules:
-                Property-rule records for valid molecules.
-            top_similar_pairs:
-                Top pairwise similarities among valid molecules.
-            validation_summary:
-                Dataset-level valid/invalid counts.
-            descriptor_summary:
-                Summary statistics for calculated descriptors.
-
-    Raises:
-        ValueError: If required columns are missing.
+    The original row order and columns are preserved. Invalid molecules remain
+    in the output. Descriptors, rule checks, and optional local-reference
+    similarity results are added only for valid structures.
     """
     required_columns = {"valid", smiles_column}
-
     missing = required_columns - set(df.columns)
+
     if missing:
         raise ValueError(
             "DataFrame is missing required columns: "
             + ", ".join(sorted(missing))
         )
+
+    if reference_top_n < 1:
+        raise ValueError("reference_top_n must be at least 1")
 
     result_df = df.copy()
 
@@ -188,11 +162,48 @@ def analyze_dataframe(
             }
         )
 
+    reference_matches = []
+
+    if compare_reference and valid_smiles:
+        reference_matches = find_most_similar_batch(
+            valid_smiles,
+            top_n=reference_top_n,
+            exclude_exact_match=True,
+        )
+
+        # Build a lookup by query SMILES. Identical query structures share
+        # identical reference results, which is correct for this use case.
+        match_map = {
+            item["query_smiles"]: item["matches"]
+            for item in reference_matches
+        }
+
+        for rank in range(1, reference_top_n + 1):
+            result_df[f"ref_{rank}_chembl_id"] = None
+            result_df[f"ref_{rank}_name"] = None
+            result_df[f"ref_{rank}_smiles"] = None
+            result_df[f"ref_{rank}_similarity"] = None
+
+        for index in result_df.index[valid_mask]:
+            smiles = result_df.at[index, smiles_column]
+            matches = match_map.get(smiles, [])
+
+            for rank, match in enumerate(matches, start=1):
+                result_df.at[index, f"ref_{rank}_chembl_id"] = match.get(
+                    "chembl_id"
+                )
+                result_df.at[index, f"ref_{rank}_name"] = match.get("name")
+                result_df.at[index, f"ref_{rank}_smiles"] = match.get("smiles")
+                result_df.at[index, f"ref_{rank}_similarity"] = match.get(
+                    "similarity"
+                )
+
     return {
         "dataset": result_df,
         "descriptors": descriptor_results,
         "rules": rule_results,
         "top_similar_pairs": top_similar_pairs,
+        "reference_matches": reference_matches,
         "validation_summary": summarize_validation(validation_results),
         "descriptor_summary": summarize_descriptors(descriptor_results),
     }

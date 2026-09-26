@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import io
 from pathlib import Path
 
 import pandas as pd
@@ -23,14 +25,19 @@ INSTRUCTIONS_PATH = PROJECT_ROOT / "prompts" / "agent_instructions.txt"
 # Session state
 # ============================================================
 
-if "ui_language" not in st.session_state:
-    st.session_state.ui_language = "hr"
+DEFAULT_STATE = {
+    "ui_language": "hr",
+    "dataset_context": None,
+    "dataset_filename": None,
+    "dataset_file_hash": None,
+    "analyzed_df": None,
+    "analysis_result": None,
+    "reference_compare_enabled": False,
+}
 
-if "dataset_context" not in st.session_state:
-    st.session_state.dataset_context = None
-
-if "dataset_filename" not in st.session_state:
-    st.session_state.dataset_filename = None
+for key, value in DEFAULT_STATE.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
 # ============================================================
@@ -50,10 +57,10 @@ TEXT = {
 Primjeri pitanja:
 
 - `Validiraj ove SMILES zapise: CCO, CCN, C1CC`
-- `Izračunaj deskriptore za aspirin: CC(=O)Oc1ccccc1C(=O)O`
 - `Pronađi aspirin u lokalnoj referentnoj bazi`
 - `Koja molekula u učitanom CSV-u ima najveći MW?`
-- `Objasni mi najsličniji par molekula iz učitanog CSV-a`
+- `Koji je najsličniji par molekula iz učitanog CSV-a?`
+- `Koje su tri referentne molekule najsličnije CMP001?`
 """,
         "ask_label": "Pitaj ChemASSistant",
         "ask_placeholder": "Unesite pitanje iz područja kemoinformatike...",
@@ -67,9 +74,8 @@ Primjeri pitanja:
         "clear_dataset": "Odspoji CSV od chata",
         "dataset_header": "CSV skup molekularnih podataka",
         "dataset_intro": (
-            "Prenesite CSV datoteku koja sadrži stupac s molekularnim SMILES zapisima. "
-            "Analiza je deterministička. Nakon analize, sažeti rezultati postaju dostupni "
-            "ChemASSistant chatu."
+            "Prenesite CSV datoteku sa SMILES stupcem. Analiza je deterministička. "
+            "Nakon analize, sažeti rezultati postaju dostupni chatu."
         ),
         "upload_csv": "Prenesi CSV",
         "csv_read_error": "Nije moguće pročitati CSV",
@@ -79,12 +85,17 @@ Primjeri pitanja:
         "smiles_column": "SMILES stupac",
         "smiles_help": (
             "ChemASSistant pokušava automatski prepoznati SMILES stupac, "
-            "ali ga ovdje možete ručno promijeniti."
+            "ali ga možete ručno promijeniti."
         ),
         "detected_smiles": "Automatski prepoznat SMILES stupac",
         "not_detected": (
             "SMILES stupac nije automatski prepoznat. "
             "Ručno odaberite odgovarajući stupac."
+        ),
+        "compare_reference": "Usporedi s lokalnom ChEMBL referentnom bazom",
+        "compare_reference_help": (
+            "Za svaku valjanu molekulu Python/RDKit lokalno pronalazi "
+            "3 najsličnije referentne molekule."
         ),
         "analyze_dataset": "Analiziraj skup podataka",
         "summary": "Sažetak",
@@ -92,7 +103,8 @@ Primjeri pitanja:
         "valid_molecules": "Valjane molekule",
         "invalid_molecules": "Nevaljane molekule",
         "analyzed_dataset": "Analizirani skup podataka",
-        "top_pairs": "Najsličniji parovi",
+        "top_pairs": "Najsličniji parovi unutar CSV-a",
+        "reference_matches": "Sličnost prema referentnoj bazi",
         "not_enough": "Nema dovoljno valjanih molekula za izračun parnih sličnosti.",
         "download_csv": "Preuzmi analizirani CSV",
         "dataset_error": "Analiza skupa podataka nije uspjela",
@@ -114,10 +126,10 @@ Primjeri pitanja:
 Example questions:
 
 - `Validate these SMILES: CCO, CCN, C1CC`
-- `Calculate descriptors for aspirin: CC(=O)Oc1ccccc1C(=O)O`
 - `Find aspirin in the local reference database`
 - `Which molecule in the uploaded CSV has the highest MW?`
-- `Explain the most similar pair in the uploaded CSV`
+- `Which pair in the uploaded CSV is most similar?`
+- `Which three reference molecules are most similar to CMP001?`
 """,
         "ask_label": "Ask ChemASSistant",
         "ask_placeholder": "Enter a cheminformatics question...",
@@ -131,9 +143,8 @@ Example questions:
         "clear_dataset": "Disconnect CSV from chat",
         "dataset_header": "CSV molecular dataset",
         "dataset_intro": (
-            "Upload a CSV file containing a column with molecular SMILES. "
-            "The analysis is deterministic. After analysis, a compact result context "
-            "becomes available to ChemASSistant chat."
+            "Upload a CSV file containing a SMILES column. Analysis is deterministic. "
+            "After analysis, compact results become available to chat."
         ),
         "upload_csv": "Upload CSV",
         "csv_read_error": "Could not read CSV",
@@ -150,13 +161,19 @@ Example questions:
             "No SMILES column was detected automatically. "
             "Select the correct column manually."
         ),
+        "compare_reference": "Compare with local ChEMBL reference database",
+        "compare_reference_help": (
+            "For each valid molecule, Python/RDKit locally finds "
+            "the 3 most similar reference molecules."
+        ),
         "analyze_dataset": "Analyze dataset",
         "summary": "Summary",
         "total_molecules": "Total molecules",
         "valid_molecules": "Valid molecules",
         "invalid_molecules": "Invalid molecules",
         "analyzed_dataset": "Analyzed dataset",
-        "top_pairs": "Top similar pairs",
+        "top_pairs": "Top similar pairs within CSV",
+        "reference_matches": "Reference-database similarity",
         "not_enough": "Not enough valid molecules to calculate pairwise similarities.",
         "download_csv": "Download analyzed CSV",
         "dataset_error": "Dataset analysis failed",
@@ -182,11 +199,8 @@ def build_dataset_context(
     filename: str | None,
     max_rows: int = 50,
 ) -> str:
-    """Create a compact, deterministic context for the LLM.
+    """Create a compact deterministic dataset context for the LLM."""
 
-    The LLM does not receive the raw uploaded file. It receives selected
-    results produced by the deterministic ChemASSistant pipeline.
-    """
     preferred_columns = [
         "compound_id",
         "id",
@@ -205,6 +219,15 @@ def build_dataset_context(
         "formal_charge",
         "lipinski_violations",
         "violations",
+        "ref_1_chembl_id",
+        "ref_1_name",
+        "ref_1_similarity",
+        "ref_2_chembl_id",
+        "ref_2_name",
+        "ref_2_similarity",
+        "ref_3_chembl_id",
+        "ref_3_name",
+        "ref_3_similarity",
     ]
 
     selected_columns = [
@@ -212,18 +235,13 @@ def build_dataset_context(
         if column in analyzed_df.columns
     ]
 
-    # Preserve user columns if we still have room and they are simple tabular data.
+    # Preserve a few user-provided columns too, while keeping context bounded.
     for column in analyzed_df.columns:
-        if column not in selected_columns and len(selected_columns) < 20:
+        if column not in selected_columns and len(selected_columns) < 24:
             selected_columns.append(column)
 
     context_df = analyzed_df[selected_columns].head(max_rows).copy()
-
     context_df = context_df.where(pd.notna(context_df), None)
-
-    validation_summary = result["validation_summary"]
-    descriptor_summary = result["descriptor_summary"]
-    top_pairs = result["top_similar_pairs"]
 
     truncated = len(analyzed_df) > max_rows
 
@@ -240,13 +258,13 @@ Rows included below: {len(context_df)}
 Context truncated: {truncated}
 
 Validation summary:
-{validation_summary}
+{result["validation_summary"]}
 
 Descriptor summary:
-{descriptor_summary}
+{result["descriptor_summary"]}
 
 Top pairwise similarities within the uploaded dataset:
-{top_pairs}
+{result["top_similar_pairs"]}
 
 Analyzed rows:
 {context_df.to_dict(orient="records")}
@@ -254,11 +272,100 @@ Analyzed rows:
 IMPORTANT:
 - Answer in the same language as the user's question.
 - Use only the dataset information shown above for claims about the uploaded CSV.
+- Reference-match columns were calculated locally with Morgan fingerprints
+  (radius=2) and Tanimoto similarity.
+- Do not describe similarity scores as percentages of chemical similarity.
 - If the requested answer depends on rows not included because the context was
   truncated, say that the current chat context does not contain enough rows
   to answer reliably.
 - Do not invent missing dataset values.
 """.strip()
+
+
+def clear_analysis_state() -> None:
+    """Clear state associated with a previously uploaded/analyzed dataset."""
+    st.session_state.dataset_context = None
+    st.session_state.dataset_filename = None
+    st.session_state.analyzed_df = None
+    st.session_state.analysis_result = None
+    st.session_state.reference_compare_enabled = False
+
+
+def render_analysis_results() -> None:
+    """Render persisted analysis results after reruns/language changes."""
+    analyzed_df = st.session_state.analyzed_df
+    result = st.session_state.analysis_result
+
+    if analyzed_df is None or result is None:
+        return
+
+    validation_summary = result["validation_summary"]
+
+    st.markdown(f"### {t['summary']}")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric(
+        t["total_molecules"],
+        validation_summary["total_molecules"],
+    )
+    col2.metric(
+        t["valid_molecules"],
+        validation_summary["valid_molecules"],
+    )
+    col3.metric(
+        t["invalid_molecules"],
+        validation_summary["invalid_molecules"],
+    )
+
+    st.markdown(f"### {t['analyzed_dataset']}")
+    st.dataframe(analyzed_df, use_container_width=True)
+
+    st.markdown(f"### {t['top_pairs']}")
+    top_pairs = result["top_similar_pairs"]
+
+    if top_pairs:
+        st.dataframe(
+            pd.DataFrame(top_pairs),
+            use_container_width=True,
+        )
+    else:
+        st.info(t["not_enough"])
+
+    reference_matches = result.get("reference_matches", [])
+
+    if reference_matches:
+        flattened = []
+
+        for item in reference_matches:
+            query_smiles = item["query_smiles"]
+
+            for rank, match in enumerate(item["matches"], start=1):
+                flattened.append(
+                    {
+                        "query_smiles": query_smiles,
+                        "rank": rank,
+                        "chembl_id": match.get("chembl_id"),
+                        "name": match.get("name"),
+                        "reference_smiles": match.get("smiles"),
+                        "similarity": match.get("similarity"),
+                    }
+                )
+
+        if flattened:
+            st.markdown(f"### {t['reference_matches']}")
+            st.dataframe(
+                pd.DataFrame(flattened),
+                use_container_width=True,
+            )
+
+    csv_output = analyzed_df.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        t["download_csv"],
+        data=csv_output,
+        file_name="chemassistant_analysis.csv",
+        mime="text/csv",
+    )
 
 
 # ============================================================
@@ -294,8 +401,6 @@ with lang_col:
 
 @st.cache_resource
 def create_agent() -> ToolCallingAgent:
-    """Create and cache the ChemASSistant agent."""
-
     instructions = INSTRUCTIONS_PATH.read_text(encoding="utf-8")
 
     model = OpenAIModel(
@@ -320,7 +425,7 @@ def create_agent() -> ToolCallingAgent:
 
 
 # ============================================================
-# Main UI
+# Tabs
 # ============================================================
 
 chat_tab, dataset_tab = st.tabs(
@@ -330,6 +435,7 @@ chat_tab, dataset_tab = st.tabs(
 
 # ============================================================
 # Dataset analysis tab
+# Executed before chat so newly-created context is visible immediately.
 # ============================================================
 
 with dataset_tab:
@@ -344,10 +450,20 @@ with dataset_tab:
     )
 
     if uploaded_file is not None:
+        uploaded_bytes = uploaded_file.getvalue()
+        current_hash = hashlib.sha256(uploaded_bytes).hexdigest()
+
+        # If the actual file changes, discard stale analysis/context.
+        if (
+            st.session_state.dataset_file_hash is not None
+            and st.session_state.dataset_file_hash != current_hash
+        ):
+            clear_analysis_state()
+
+        st.session_state.dataset_file_hash = current_hash
 
         try:
-            raw_df = pd.read_csv(uploaded_file)
-
+            raw_df = pd.read_csv(io.BytesIO(uploaded_bytes))
         except Exception as exc:
             st.error(f"{t['csv_read_error']}: {exc}")
             raw_df = None
@@ -370,10 +486,11 @@ with dataset_tab:
                 detected_column = dataset.detect_smiles_column(raw_df)
                 column_names = list(raw_df.columns)
 
-                if detected_column in column_names:
-                    default_index = column_names.index(detected_column)
-                else:
-                    default_index = 0
+                default_index = (
+                    column_names.index(detected_column)
+                    if detected_column in column_names
+                    else 0
+                )
 
                 smiles_column = st.selectbox(
                     t["smiles_column"],
@@ -389,12 +506,17 @@ with dataset_tab:
                 else:
                     st.caption(t["not_detected"])
 
+                compare_reference = st.checkbox(
+                    t["compare_reference"],
+                    value=st.session_state.reference_compare_enabled,
+                    help=t["compare_reference_help"],
+                )
+
                 if st.button(
                     t["analyze_dataset"],
                     type="primary",
                     key="dataset_analyze",
                 ):
-
                     try:
                         prepared_df = dataset.prepare_dataset(
                             raw_df,
@@ -404,76 +526,33 @@ with dataset_tab:
                         result = pipeline.analyze_dataframe(
                             prepared_df,
                             smiles_column="canonical_smiles",
+                            compare_reference=compare_reference,
+                            reference_top_n=3,
                         )
 
                         analyzed_df = result["dataset"]
-                        validation_summary = result["validation_summary"]
 
-                        # Store a compact deterministic context for chat.
+                        # Persist full deterministic analysis across Streamlit reruns.
+                        st.session_state.analyzed_df = analyzed_df
+                        st.session_state.analysis_result = result
+                        st.session_state.dataset_filename = uploaded_file.name
+                        st.session_state.reference_compare_enabled = compare_reference
+
+                        # Persist compact context for the LLM.
                         st.session_state.dataset_context = build_dataset_context(
                             analyzed_df=analyzed_df,
                             result=result,
                             filename=uploaded_file.name,
                             max_rows=50,
                         )
-                        st.session_state.dataset_filename = uploaded_file.name
 
                         st.success(t["chat_connected"])
-                        st.caption(t["context_note"])
-
-                        st.markdown(f"### {t['summary']}")
-
-                        col1, col2, col3 = st.columns(3)
-
-                        col1.metric(
-                            t["total_molecules"],
-                            validation_summary["total_molecules"],
-                        )
-
-                        col2.metric(
-                            t["valid_molecules"],
-                            validation_summary["valid_molecules"],
-                        )
-
-                        col3.metric(
-                            t["invalid_molecules"],
-                            validation_summary["invalid_molecules"],
-                        )
-
-                        st.markdown(f"### {t['analyzed_dataset']}")
-
-                        st.dataframe(
-                            analyzed_df,
-                            use_container_width=True,
-                        )
-
-                        st.markdown(f"### {t['top_pairs']}")
-
-                        top_pairs = result["top_similar_pairs"]
-
-                        if top_pairs:
-                            similarity_df = pd.DataFrame(top_pairs)
-
-                            st.dataframe(
-                                similarity_df,
-                                use_container_width=True,
-                            )
-                        else:
-                            st.info(t["not_enough"])
-
-                        csv_output = analyzed_df.to_csv(
-                            index=False
-                        ).encode("utf-8")
-
-                        st.download_button(
-                            t["download_csv"],
-                            data=csv_output,
-                            file_name="chemassistant_analysis.csv",
-                            mime="text/csv",
-                        )
 
                     except Exception as exc:
                         st.error(f"{t['dataset_error']}: {exc}")
+
+                # Render results even after language changes or other reruns.
+                render_analysis_results()
 
 
 # ============================================================
