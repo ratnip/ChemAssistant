@@ -11,6 +11,7 @@ from smolagents import OpenAIModel, ToolCallingAgent
 import agent
 import pipeline
 import tools.dataset as dataset
+import tools.rendering as rendering
 
 
 # ============================================================
@@ -34,6 +35,7 @@ DEFAULT_STATE = {
     "analysis_result": None,
     "reference_compare_enabled": False,
     "messages": [],
+    "selected_molecule_row": None,
 }
 
 for key, value in DEFAULT_STATE.items():
@@ -106,6 +108,12 @@ Primjeri pitanja:
         "valid_molecules": "Valjane molekule",
         "invalid_molecules": "Nevaljane molekule",
         "analyzed_dataset": "Analizirani skup podataka",
+        "molecule_detail": "Detalji molekule",
+        "select_molecule": "Odaberite molekulu",
+        "structure_2d": "2D struktura",
+        "properties": "Svojstva",
+        "reference_detail": "Najsličnije referentne molekule",
+        "no_valid_detail": "Nema valjanih molekula za prikaz.",
         "top_pairs": "Najsličniji parovi unutar CSV-a",
         "reference_matches": "Sličnost prema referentnoj bazi",
         "not_enough": "Nema dovoljno valjanih molekula za izračun parnih sličnosti.",
@@ -177,6 +185,12 @@ Example questions:
         "valid_molecules": "Valid molecules",
         "invalid_molecules": "Invalid molecules",
         "analyzed_dataset": "Analyzed dataset",
+        "molecule_detail": "Molecule detail",
+        "select_molecule": "Select molecule",
+        "structure_2d": "2D structure",
+        "properties": "Properties",
+        "reference_detail": "Most similar reference molecules",
+        "no_valid_detail": "No valid molecules are available to display.",
         "top_pairs": "Top similar pairs within CSV",
         "reference_matches": "Reference-database similarity",
         "not_enough": "Not enough valid molecules to calculate pairwise similarities.",
@@ -294,6 +308,156 @@ def clear_analysis_state() -> None:
     st.session_state.analyzed_df = None
     st.session_state.analysis_result = None
     st.session_state.reference_compare_enabled = False
+    st.session_state.selected_molecule_row = None
+    st.session_state.pop("molecule_detail_selector", None)
+
+
+
+def render_molecule_detail(analyzed_df: pd.DataFrame) -> None:
+    """Render an interactive 2D molecule detail view for one analyzed row."""
+    if "valid" not in analyzed_df.columns or "canonical_smiles" not in analyzed_df.columns:
+        return
+
+    valid_rows = analyzed_df[
+        analyzed_df["valid"].eq(True)
+        & analyzed_df["canonical_smiles"].notna()
+    ]
+
+    if valid_rows.empty:
+        st.info(t["no_valid_detail"])
+        return
+
+    row_indices = list(valid_rows.index)
+
+    def molecule_label(index):
+        row = valid_rows.loc[index]
+
+        for column in ("compound_id", "name", "id"):
+            if column in valid_rows.columns:
+                value = row.get(column)
+                if pd.notna(value) and str(value).strip():
+                    return f"{value} — {row['canonical_smiles']}"
+
+        return f"Row {index} — {row['canonical_smiles']}"
+
+    if st.session_state.selected_molecule_row not in row_indices:
+        st.session_state.selected_molecule_row = row_indices[0]
+
+    selected_index = st.selectbox(
+        t["select_molecule"],
+        options=row_indices,
+        index=row_indices.index(st.session_state.selected_molecule_row),
+        format_func=molecule_label,
+        key="molecule_detail_selector",
+    )
+
+    st.session_state.selected_molecule_row = selected_index
+    row = analyzed_df.loc[selected_index]
+    smiles = str(row["canonical_smiles"])
+
+    image_col, data_col = st.columns([1, 2])
+
+    with image_col:
+        st.markdown(f"#### {t['structure_2d']}")
+        try:
+            molecule_image = rendering.smiles_to_image(
+                smiles,
+                size=(360, 300),
+            )
+            st.image(molecule_image)
+            st.caption(smiles)
+        except ValueError as exc:
+            st.warning(str(exc))
+
+    with data_col:
+        st.markdown(f"#### {t['properties']}")
+
+        property_fields = [
+            ("MW", "mw"),
+            ("LogP", "logp"),
+            ("TPSA", "tpsa"),
+            ("HBD", "hbd"),
+            ("HBA", "hba"),
+            ("Rotatable bonds", "rotatable_bonds"),
+            ("Heavy atoms", "heavy_atoms"),
+            ("Formal charge", "formal_charge"),
+            ("Lipinski violations", "lipinski_violations"),
+            ("Violations", "violations"),
+        ]
+
+        property_rows = []
+
+        for label, column in property_fields:
+            if column not in analyzed_df.columns:
+                continue
+
+            value = row.get(column)
+
+            if isinstance(value, (list, tuple)):
+                value = ", ".join(str(item) for item in value) if value else "—"
+            elif pd.isna(value):
+                value = "—"
+
+            property_rows.append(
+                {
+                    "Property": label,
+                    "Value": value,
+                }
+            )
+
+        if property_rows:
+            st.dataframe(
+                pd.DataFrame(property_rows),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+    # Render reference hits for the selected molecule when they are present.
+    reference_smiles = []
+    reference_legends = []
+
+    for rank in range(1, 4):
+        smiles_column = f"ref_{rank}_smiles"
+
+        if smiles_column not in analyzed_df.columns:
+            continue
+
+        ref_smiles = row.get(smiles_column)
+
+        if pd.isna(ref_smiles) or not str(ref_smiles).strip():
+            continue
+
+        chembl_id = row.get(f"ref_{rank}_chembl_id")
+        name = row.get(f"ref_{rank}_name")
+        similarity = row.get(f"ref_{rank}_similarity")
+
+        label_parts = []
+
+        if pd.notna(chembl_id):
+            label_parts.append(str(chembl_id))
+
+        if pd.notna(name) and str(name).strip():
+            label_parts.append(str(name))
+
+        if pd.notna(similarity):
+            label_parts.append(f"T={float(similarity):.3f}")
+
+        reference_smiles.append(str(ref_smiles))
+        reference_legends.append(" | ".join(label_parts) or f"Reference {rank}")
+
+    if reference_smiles:
+        st.markdown(f"#### {t['reference_detail']}")
+
+        try:
+            reference_grid = rendering.draw_molecule_grid(
+                reference_smiles,
+                legends=reference_legends,
+                mols_per_row=min(3, len(reference_smiles)),
+                sub_img_size=(300, 240),
+            )
+            st.image(reference_grid)
+        except ValueError as exc:
+            st.warning(str(exc))
 
 
 def render_analysis_results() -> None:
@@ -324,6 +488,9 @@ def render_analysis_results() -> None:
 
     st.markdown(f"### {t['analyzed_dataset']}")
     st.dataframe(analyzed_df, use_container_width=True)
+
+    st.markdown(f"### {t['molecule_detail']}")
+    render_molecule_detail(analyzed_df)
 
     st.markdown(f"### {t['top_pairs']}")
     top_pairs = result["top_similar_pairs"]
