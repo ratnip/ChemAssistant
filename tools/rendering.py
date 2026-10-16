@@ -1,4 +1,4 @@
-"""2D molecule rendering utilities for ChemASSistant.
+"""2D molecule rendering utilities for ChemAssistant.
 
 All structure rendering is performed locally with RDKit.
 """
@@ -6,6 +6,7 @@ All structure rendering is performed locally with RDKit.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextvars import ContextVar
 
 from PIL import Image
 from rdkit import Chem, rdBase
@@ -82,3 +83,35 @@ def draw_molecule_grid(
         legends=valid_legends if legends is not None else None,
         useSVG=False,
     )
+
+
+# Chat rendering handoff: keep images and binary data out of the LLM context.
+# Streamlit consumes these validated requests after agent.run() returns.
+_CHAT_RENDER_REQUESTS: ContextVar[tuple[dict[str, str], ...]] = ContextVar(
+    "chemassistant_chat_render_requests", default=()
+)
+
+
+def clear_chat_render_requests() -> None:
+    """Start a fresh render-request collection for the current chat turn."""
+    _CHAT_RENDER_REQUESTS.set(())
+
+
+def queue_chat_render(smiles: str) -> dict[str, str]:
+    """Validate a SMILES and queue a 2D depiction for the UI.
+
+    Returns a compact receipt suitable for LLM tool observations.
+    Does not send pixel data or file paths to the LLM.
+    """
+    mol = _mol_from_smiles(smiles)
+    canonical_smiles = Chem.MolToSmiles(mol)
+    request = {"smiles": canonical_smiles}
+    _CHAT_RENDER_REQUESTS.set((*_CHAT_RENDER_REQUESTS.get(), request))
+    return {"status": "queued_for_display", "smiles": canonical_smiles}
+
+
+def pop_chat_render_requests() -> list[dict[str, str]]:
+    """Retrieve and clear requests after the agent completes its chat turn."""
+    requests = list(_CHAT_RENDER_REQUESTS.get())
+    _CHAT_RENDER_REQUESTS.set(())
+    return requests

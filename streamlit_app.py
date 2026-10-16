@@ -558,6 +558,9 @@ def build_chat_export() -> str:
                 f"## {role}",
                 "",
                 str(message["content"]),
+                *(["", "Rendered molecular structures (canonical SMILES): " + ", ".join(
+                    image["smiles"] for image in message.get("molecule_images", [])
+                )] if message.get("molecule_images") else []),
                 "",
             ]
         )
@@ -615,6 +618,7 @@ def create_agent() -> ToolCallingAgent:
             agent.search_reference_database_tool,
             agent.get_reference_molecule_tool,
             agent.find_similar_in_reference_database_tool,
+            agent.render_molecule_tool,
         ],
         model=model,
         instructions=instructions,
@@ -799,6 +803,14 @@ with chat_tab:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.write(message["content"])
+            for image_request in message.get("molecule_images", []):
+                try:
+                    st.image(
+                        rendering.smiles_to_image(image_request["smiles"], size=(360, 300)),
+                        caption=image_request["smiles"],
+                    )
+                except ValueError as exc:
+                    st.warning(str(exc))
 
     if st.session_state.messages:
         chat_export = build_chat_export()
@@ -866,15 +878,23 @@ with chat_tab:
                     }
                 )
 
-                with st.spinner(t["analyzing"]):
-                    response = chem_agent.run(agent_prompt)
+                # Tool calls only queue validated SMILES; pixel data never enters Gemini.
+                rendering.clear_chat_render_requests()
+                try:
+                    with st.spinner(t["analyzing"]):
+                        response = chem_agent.run(agent_prompt)
+                except Exception:
+                    rendering.clear_chat_render_requests()
+                    raise
 
+                molecule_images = rendering.pop_chat_render_requests()
                 response_text = str(response)
 
                 st.session_state.messages.append(
                     {
                         "role": "assistant",
                         "content": response_text,
+                        "molecule_images": molecule_images,
                     }
                 )
 

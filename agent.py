@@ -164,3 +164,24 @@ def find_similar_in_reference_database_tool(
         top_n=top_n,
         exclude_exact_match=True,
     )
+
+
+@tool
+def render_molecule_tool(smiles: str) -> dict:
+    """
+    Request a 2D depiction of a molecule in the chat interface.
+
+    Args:
+        smiles: Valid molecular SMILES to draw. For a compound name,
+            first use the reference database to obtain its SMILES.
+
+    Returns:
+        A compact status and canonical SMILES. The interface renders
+        the actual image locally using RDKit after the agent finishes.
+    """
+    from tools.rendering import queue_chat_render
+
+    try:
+        return queue_chat_render(smiles)
+    except ValueError as exc:
+        return {"status": "error", "error": str(exc)}
