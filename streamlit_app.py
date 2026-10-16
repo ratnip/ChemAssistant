@@ -12,6 +12,7 @@ import agent
 import pipeline
 import tools.dataset as dataset
 import tools.rendering as rendering
+from tools.sdf import load_sdf
 
 
 # ============================================================
@@ -72,20 +73,20 @@ Primjeri pitanja:
         "analyzing": "Analiziram...",
         "response": "Odgovor",
         "assistant_error": "Greška ChemAssistant-a",
-        "dataset_active": "Aktivan CSV kontekst",
-        "dataset_none": "CSV skup podataka trenutno nije povezan s chatom.",
-        "clear_dataset": "Odspoji CSV od chata",
+        "dataset_active": "Aktivan kontekst skupa podataka",
+        "dataset_none": "Nijedan skup podataka trenutno nije povezan s chatom.",
+        "clear_dataset": "Odspoji skup podataka od chata",
         "clear_chat": "Očisti razgovor",
         "export_chat": "Preuzmi razgovor (.md)",
-        "dataset_header": "CSV skup molekularnih podataka",
+        "dataset_header": "Molekularni skup podataka (CSV ili SDF)",
         "dataset_intro": (
-            "Prenesite CSV datoteku sa SMILES stupcem. Analiza je deterministička. "
+            "Prenesite CSV datoteku sa SMILES stupcem ili SDF datoteku. Analiza je deterministička. "
             "Nakon analize, sažeti rezultati postaju dostupni chatu."
         ),
-        "upload_csv": "Prenesi CSV",
-        "csv_read_error": "Nije moguće pročitati CSV",
-        "empty_rows": "Preneseni CSV ne sadrži retke podataka.",
-        "empty_columns": "Preneseni CSV ne sadrži stupce.",
+        "upload_csv": "Prenesi CSV ili SDF",
+        "csv_read_error": "Nije moguće pročitati datoteku",
+        "empty_rows": "Prenesena datoteka ne sadrži retke podataka.",
+        "empty_columns": "Prenesena datoteka ne sadrži stupce.",
         "dataset_preview": "Pregled skupa podataka",
         "smiles_column": "SMILES stupac",
         "smiles_help": (
@@ -114,12 +115,12 @@ Primjeri pitanja:
         "properties": "Svojstva",
         "reference_detail": "Najsličnije referentne molekule",
         "no_valid_detail": "Nema valjanih molekula za prikaz.",
-        "top_pairs": "Najsličniji parovi unutar CSV-a",
+        "top_pairs": "Najsličniji parovi unutar skupa podataka",
         "reference_matches": "Sličnost prema referentnoj bazi",
         "not_enough": "Nema dovoljno valjanih molekula za izračun parnih sličnosti.",
         "download_csv": "Preuzmi analizirani CSV",
         "dataset_error": "Analiza skupa podataka nije uspjela",
-        "chat_connected": "CSV analiza je sada dostupna chatu.",
+        "chat_connected": "Analiza skupa podataka sada je dostupna chatu.",
         "context_note": (
             "Chat dobiva deterministički sažetak i najviše 50 analiziranih redaka "
             "kako ne bismo nepotrebno trošili tokene."
@@ -149,20 +150,20 @@ Example questions:
         "analyzing": "Analyzing...",
         "response": "Response",
         "assistant_error": "ChemAssistant error",
-        "dataset_active": "Active CSV context",
-        "dataset_none": "No CSV dataset is currently connected to chat.",
-        "clear_dataset": "Disconnect CSV from chat",
+        "dataset_active": "Active dataset context",
+        "dataset_none": "No dataset is currently connected to chat.",
+        "clear_dataset": "Disconnect dataset from chat",
         "clear_chat": "Clear conversation",
         "export_chat": "Download conversation (.md)",
-        "dataset_header": "CSV molecular dataset",
+        "dataset_header": "Molecular dataset (CSV or SDF)",
         "dataset_intro": (
-            "Upload a CSV file containing a SMILES column. Analysis is deterministic. "
+            "Upload a CSV containing a SMILES column, or an SDF file. Analysis is deterministic. "
             "After analysis, compact results become available to chat."
         ),
-        "upload_csv": "Upload CSV",
-        "csv_read_error": "Could not read CSV",
-        "empty_rows": "The uploaded CSV contains no data rows.",
-        "empty_columns": "The uploaded CSV contains no columns.",
+        "upload_csv": "Upload CSV or SDF",
+        "csv_read_error": "Could not read file",
+        "empty_rows": "The uploaded file contains no data rows.",
+        "empty_columns": "The uploaded file contains no columns.",
         "dataset_preview": "Dataset preview",
         "smiles_column": "SMILES column",
         "smiles_help": (
@@ -191,12 +192,12 @@ Example questions:
         "properties": "Properties",
         "reference_detail": "Most similar reference molecules",
         "no_valid_detail": "No valid molecules are available to display.",
-        "top_pairs": "Top similar pairs within CSV",
+        "top_pairs": "Top similar pairs within dataset",
         "reference_matches": "Reference-database similarity",
         "not_enough": "Not enough valid molecules to calculate pairwise similarities.",
         "download_csv": "Download analyzed CSV",
         "dataset_error": "Dataset analysis failed",
-        "chat_connected": "CSV analysis is now available to chat.",
+        "chat_connected": "Dataset analysis is now available to chat.",
         "context_note": (
             "Chat receives deterministic summary data plus at most 50 analyzed rows "
             "to avoid unnecessary token usage."
@@ -290,7 +291,7 @@ Analyzed rows:
 
 IMPORTANT:
 - Answer in the same language as the user's question.
-- Use only the dataset information shown above for claims about the uploaded CSV.
+- Use only the dataset information shown above for claims about the uploaded dataset.
 - Reference-match columns were calculated locally with Morgan fingerprints
   (radius=2) and Tanimoto similarity.
 - Do not describe similarity scores as percentages of chemical similarity.
@@ -641,7 +642,7 @@ with dataset_tab:
 
     uploaded_file = st.file_uploader(
         t["upload_csv"],
-        type=["csv"],
+        type=["csv", "sdf"],
         key="dataset_upload",
     )
 
@@ -659,7 +660,10 @@ with dataset_tab:
         st.session_state.dataset_file_hash = current_hash
 
         try:
-            raw_df = pd.read_csv(io.BytesIO(uploaded_bytes))
+            if uploaded_file.name.lower().endswith(".sdf"):
+                raw_df = load_sdf(uploaded_bytes)
+            else:
+                raw_df = pd.read_csv(io.BytesIO(uploaded_bytes))
         except Exception as exc:
             st.error(f"{t['csv_read_error']}: {exc}")
             raw_df = None
