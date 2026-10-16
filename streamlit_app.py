@@ -49,11 +49,11 @@ for key, value in DEFAULT_STATE.items():
 
 TEXT = {
     "hr": {
-        "page_title": "ChemASSistant",
+        "page_title": "ChemAssistant",
         "caption": "Demo verzija — nemojte unositi povjerljive ili osjetljive podatke.",
         "switch_button": "EN",
         "switch_help": "Prebaci sučelje na engleski",
-        "chat_tab": "💬 ChemASSistant",
+        "chat_tab": "💬 ChemAssistant",
         "dataset_tab": "📄 Analiza skupa podataka",
         "chat_header": "Asistent za molekularnu analizu",
         "examples": """
@@ -65,13 +65,13 @@ Primjeri pitanja:
 - `Koji je najsličniji par molekula iz učitanog CSV-a?`
 - `Koje su tri referentne molekule najsličnije CMP001?`
 """,
-        "ask_label": "Pitaj ChemASSistant",
+        "ask_label": "Pitaj ChemAssistant",
         "ask_placeholder": "Unesite pitanje iz područja kemoinformatike...",
         "analyze_button": "Analiziraj",
         "enter_question": "Prvo unesite pitanje.",
         "analyzing": "Analiziram...",
         "response": "Odgovor",
-        "assistant_error": "Greška ChemASSistant-a",
+        "assistant_error": "Greška ChemAssistant-a",
         "dataset_active": "Aktivan CSV kontekst",
         "dataset_none": "CSV skup podataka trenutno nije povezan s chatom.",
         "clear_dataset": "Odspoji CSV od chata",
@@ -89,7 +89,7 @@ Primjeri pitanja:
         "dataset_preview": "Pregled skupa podataka",
         "smiles_column": "SMILES stupac",
         "smiles_help": (
-            "ChemASSistant pokušava automatski prepoznati SMILES stupac, "
+            "ChemAssistant pokušava automatski prepoznati SMILES stupac, "
             "ali ga možete ručno promijeniti."
         ),
         "detected_smiles": "Automatski prepoznat SMILES stupac",
@@ -126,11 +126,11 @@ Primjeri pitanja:
         ),
     },
     "en": {
-        "page_title": "ChemASSistant",
+        "page_title": "ChemAssistant",
         "caption": "Demo version — do not enter confidential or sensitive data.",
         "switch_button": "HR",
         "switch_help": "Switch interface to Croatian",
-        "chat_tab": "💬 ChemASSistant",
+        "chat_tab": "💬 ChemAssistant",
         "dataset_tab": "📄 Dataset analysis",
         "chat_header": "Molecular analysis assistant",
         "examples": """
@@ -142,13 +142,13 @@ Example questions:
 - `Which pair in the uploaded CSV is most similar?`
 - `Which three reference molecules are most similar to CMP001?`
 """,
-        "ask_label": "Ask ChemASSistant",
+        "ask_label": "Ask ChemAssistant",
         "ask_placeholder": "Enter a cheminformatics question...",
         "analyze_button": "Analyze",
         "enter_question": "Enter a question first.",
         "analyzing": "Analyzing...",
         "response": "Response",
-        "assistant_error": "ChemASSistant error",
+        "assistant_error": "ChemAssistant error",
         "dataset_active": "Active CSV context",
         "dataset_none": "No CSV dataset is currently connected to chat.",
         "clear_dataset": "Disconnect CSV from chat",
@@ -166,7 +166,7 @@ Example questions:
         "dataset_preview": "Dataset preview",
         "smiles_column": "SMILES column",
         "smiles_help": (
-            "ChemASSistant tries to detect a SMILES column automatically, "
+            "ChemAssistant tries to detect a SMILES column automatically, "
             "but you can override it here."
         ),
         "detected_smiles": "Automatically detected SMILES column",
@@ -267,7 +267,7 @@ def build_dataset_context(
     return f"""
 CURRENT ANALYZED DATASET CONTEXT
 
-This context was produced by ChemASSistant's deterministic Python/RDKit
+This context was produced by ChemAssistant's deterministic Python/RDKit
 pipeline. Treat values in this context as authoritative dataset results.
 Do not recalculate them from model knowledge.
 
@@ -544,14 +544,14 @@ def render_analysis_results() -> None:
 def build_chat_export() -> str:
     """Build a Markdown export of the current in-session conversation."""
     lines = [
-        "# ChemASSistant conversation",
+        "# ChemAssistant conversation",
         "",
         f"- Dataset context: {st.session_state.dataset_filename or 'None'}",
         "",
     ]
 
     for message in st.session_state.messages:
-        role = "User" if message["role"] == "user" else "ChemASSistant"
+        role = "User" if message["role"] == "user" else "ChemAssistant"
         lines.extend(
             [
                 f"## {role}",
@@ -577,7 +577,7 @@ st.set_page_config(
 title_col, lang_col = st.columns([10, 1])
 
 with title_col:
-    st.title("🧪 ChemASSistant")
+    st.title("🧪 ChemAssistant")
     st.caption(t["caption"])
 
 with lang_col:
